@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 21:24:31
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-27 21:56:47
- * @FilePath: /zhang/TidyRpcByGo/Codec/codec/gob.go
+ * @LastEditTime: 2023-04-27 23:39:10
+ * @FilePath: /zhang/TinyRpcByGo/Codec/codec/gob.go
  */
 package codec
 
@@ -21,7 +21,7 @@ type GobCodec struct {
 	enc  *gob.Encoder       // 编码
 }
 
-var _Codec = (*GobCodec)(nil) // 验证是否重写了所有函数
+var _ CodeC = (*GobCodec)(nil) // 验证是否重写了所有函数
 
 func NewGobCodec(conn io.ReadWriteCloser) CodeC { //
 
