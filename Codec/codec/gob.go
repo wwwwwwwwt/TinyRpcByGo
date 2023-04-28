@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 21:24:31
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-27 23:39:10
- * @FilePath: /zhang/TinyRpcByGo/Codec/codec/gob.go
+ * @LastEditTime: 2023-04-28 17:13:37
+ * @FilePath: /TidyRpcByGo/Codec/codec/gob.go
  */
 package codec
 
@@ -16,14 +16,14 @@ import (
 
 type GobCodec struct {
 	conn io.ReadWriteCloser // 由构造函数传入，通常是tcp或socket建立连接时得到的实例
-	buf  *bufio.Writer      // 带缓冲的buf
+	buf  *bufio.Writer      // 带缓冲的buf，防止阻塞提升性能
 	dec  *gob.Decoder       // 解码
 	enc  *gob.Encoder       // 编码
 }
 
-var _ CodeC = (*GobCodec)(nil) // 验证是否重写了所有函数
+var _ Codec = (*GobCodec)(nil) // 验证是否重写了所有函数
 
-func NewGobCodec(conn io.ReadWriteCloser) CodeC { //
+func NewGobCodec(conn io.ReadWriteCloser) Codec { //
 
 	buf := bufio.NewWriter(conn)
 	return &GobCodec{
@@ -52,17 +52,17 @@ func (c *GobCodec) Write(h *Header, body interface{}) (err error) {
 		}
 	}()
 
-	if err := c.enc.Encode(h); err != nil {
+	if err = c.enc.Encode(h); err != nil {
 		log.Println("rpc codec: gob error encoding header", err)
-		return err
+		return
 	}
 
-	if err := c.enc.Encode(body); err != nil {
+	if err = c.enc.Encode(body); err != nil {
 		log.Println("rpc codec: gob error encoding Body", err)
-		return err
+		return
 	}
 
-	return nil
+	return
 
 }
 
