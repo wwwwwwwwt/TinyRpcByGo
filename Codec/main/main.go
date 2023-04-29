@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-28 12:25:51
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-28 17:13:40
+ * @LastEditTime: 2023-04-29 10:44:22
  * @FilePath: /TidyRpcByGo/Codec/main/main.go
  */
 package main
@@ -37,9 +37,10 @@ func main() {
 	conn, _ := net.Dial("tcp", <-addr)
 	defer func() { _ = conn.Close() }()
 
-	time.Sleep(time.Second)
+	//time.Sleep(time.Second)
 	// send options
 	_ = json.NewEncoder(conn).Encode(tinyrpc.DefaultOption)
+	time.Sleep(time.Second)
 	cc := codec.NewGobCodec(conn)
 	// send request & receive response
 	for i := 0; i < 5; i++ {
@@ -48,7 +49,9 @@ func main() {
 			Seq:           uint64(i),
 		}
 		_ = cc.Write(h, fmt.Sprintf("tinyrpc req %d", h.Seq))
+
 		_ = cc.ReadHeader(h)
+
 		var reply string
 		_ = cc.ReadBody(&reply)
 		log.Println("reply:", reply)

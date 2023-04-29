@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 21:24:31
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-28 17:13:37
+ * @LastEditTime: 2023-04-29 10:40:15
  * @FilePath: /TidyRpcByGo/Codec/codec/gob.go
  */
 package codec
@@ -36,6 +36,7 @@ func NewGobCodec(conn io.ReadWriteCloser) Codec { //
 }
 
 func (c *GobCodec) ReadHeader(h *Header) error {
+
 	return c.dec.Decode(h)
 }
 
