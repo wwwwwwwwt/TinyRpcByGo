@@ -2,12 +2,13 @@
  * @Author: zzzzztw
  * @Date: 2023-04-29 11:25:12
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 16:32:07
+ * @LastEditTime: 2023-04-30 21:41:20
  * @FilePath: /TidyRpcByGo/client.go
  */
 package tinyrpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 	"tinyrpc/codec"
 )
 
@@ -194,25 +196,79 @@ func parseOption(opts ...*Option) (*Option, error) {
 	return opt, nil
 }
 
-// 实现dial函数，便于用户传入服务端地址，直接创建Client实例
-func Dial(network string, address string, opts ...*Option) (client *Client, err error) {
+type newClientFunc func(conn net.Conn, opt *Option) (client *Client, err error)
 
-	// 通过封装拿到opt
+type clientResult struct {
+	client *Client
+	err    error
+}
+
+//实现客户端连接超时自动关闭功能
+func dialTimeout(f newClientFunc, network string, address string, opts ...*Option) (client *Client, err error) {
 	opt, err := parseOption(opts...)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.Dial(network, address) // 通过"tcp / udp", 地址进行连接
+
+	conn, err := net.DialTimeout(network, address, opt.ConnectTimeout)
+
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() {
-		if client == nil {
+		if err != nil {
 			_ = conn.Close()
 		}
 	}()
 
-	return NewClient(conn, opt) //返回创建一个client实例
+	ch := make(chan clientResult)
+
+	go func() {
+		client, err := f(conn, opt)
+		//ch <- clientResult{client: client, err: err}// 若主线程超时结束了，这个ch中的数据没被拿走将被阻塞，造成内存泄露
+		// 修改为能放进管道就放，不能就走default
+		select {
+		case ch <- clientResult{client: client, err: err}:
+		default:
+		}
+	}()
+
+	if opt.ConnectTimeout == 0 {
+		result := <-ch
+		return result.client, result.err
+	}
+
+	select {
+	case <-time.After(opt.ConnectTimeout):
+		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.ConnectTimeout)
+	case result := <-ch:
+		return result.client, result.err
+	}
+
+}
+
+// 实现dial函数，便于用户传入服务端地址，直接创建Client实例
+func Dial(network string, address string, opts ...*Option) (client *Client, err error) {
+	/*
+		// 通过封装拿到opt
+		opt, err := parseOption(opts...)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := net.Dial(network, address) // 通过"tcp / udp", 地址进行连接
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if client == nil {
+				_ = conn.Close()
+			}
+		}()
+
+		return NewClient(conn, opt) //返回创建一个client实例*/
+
+	return dialTimeout(NewClient, network, address, opts...)
 }
 
 //---------------------------------------------------------------------
@@ -267,8 +323,18 @@ func (client *Client) Go(serviceMethod string, args interface{}, reply interface
 }
 
 //同步接口，receive() 后说明调用结束，调用done(), 此时会将调用好的call放进信道Done
-func (client *Client) Call(serviceMethod string, args interface{}, reply interface{}) error {
-	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
-	return call.Error
+func (client *Client) Call(ctx context.Context, serviceMethod string, args interface{}, reply interface{}) error {
+	//call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
+	call := client.Go(serviceMethod, args, reply, make(chan *Call, 1))
+	select {
+	case <-ctx.Done():
+		client.removeCall(call.Seq)
+		return errors.New("rpc client: call failed: " + ctx.Err().Error())
+	case ca := <-call.Done:
+		return ca.Error
+	}
 
+	//用户可以使用创建有超时检测功能的context对象来控制
+	//ctx, _ := context.WithTimeout(context.Background(), time.Second)
+	//err := client.Call(ctx, "Foo.Sum", &Args{1, 2}, &reply)
 }

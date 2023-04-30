@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 23:29:40
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 17:59:54
+ * @LastEditTime: 2023-04-30 21:25:27
  * @FilePath: /TidyRpcByGo/server.go
  */
 package tinyrpc
@@ -10,12 +10,14 @@ package tinyrpc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 	"tinyrpc/codec"
 )
 
@@ -25,13 +27,16 @@ const MagicNumber = 0x3bef5c
 	定义协商消息的编解码方式
 */
 type Option struct {
-	MagicNumber int        //用于验证这是tinyrpc的请求头
-	CodecType   codec.Type //指定选择的解码编码格式，gob or json
+	MagicNumber    int        //用于验证这是tinyrpc的请求头
+	CodecType      codec.Type //指定选择的解码编码格式，gob or json
+	ConnectTimeout time.Duration
+	HandleTimeout  time.Duration
 }
 
 var DefaultOption = &Option{
-	MagicNumber: MagicNumber,
-	CodecType:   codec.GobType,
+	MagicNumber:    MagicNumber,
+	CodecType:      codec.GobType,
+	ConnectTimeout: time.Second * 10,
 }
 
 /*
@@ -111,7 +116,7 @@ func (server *Server) ServerConn(conn io.ReadWriteCloser) {
 		log.Println("rpc server: option error: ", err)
 		return
 	}
-	server.serverCodec(f(conn))
+	server.serverCodec(f(conn), opt.HandleTimeout)
 }
 
 var invalidRequest = struct{}{} // 用于当发生错误解码时，发送的占位接口
@@ -138,7 +143,7 @@ type request struct {
 	处理请求handleRequest
 	发送sendResponse
 */
-func (server *Server) serverCodec(cc codec.Codec) {
+func (server *Server) serverCodec(cc codec.Codec, timeout time.Duration) {
 
 	sendLock := new(sync.Mutex)
 	wgcv := new(sync.WaitGroup)
@@ -154,7 +159,7 @@ func (server *Server) serverCodec(cc codec.Codec) {
 			continue
 		}
 		wgcv.Add(1)
-		go server.handleRequest(cc, req, sendLock, wgcv)
+		go server.handleRequest(cc, req, sendLock, wgcv, timeout)
 	}
 	wgcv.Wait()
 	_ = cc.Close()
@@ -218,10 +223,10 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 	}
 }
 
-func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wgcv *sync.WaitGroup) {
+func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wgcv *sync.WaitGroup, timeout time.Duration) {
 	defer wgcv.Done()
 
-	err := req.svc.call(req.mtype, req.argv, req.replyv)
+	/*err := req.svc.call(req.mtype, req.argv, req.replyv)
 	if err != nil {
 		req.h.Error = err.Error()
 		server.sendResponse(cc, req.h, invalidRequest, sendLock)
@@ -230,7 +235,41 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync
 	//log.Println(req.h, req.argv.Elem())
 
 	//req.replyv = reflect.ValueOf(fmt.Sprintf("tinyrpc resp %d", req.h.Seq))
-	server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
+	server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)*/
+
+	call := make(chan struct{})
+	send := make(chan struct{})
+
+	go func() {
+		err := req.svc.call(req.mtype, req.argv, req.replyv)
+		select {
+		case call <- struct{}{}:
+		default:
+			return
+		}
+		if err != nil {
+			req.h.Error = err.Error()
+			server.sendResponse(cc, req.h, invalidRequest, sendLock)
+			send <- struct{}{}
+			return
+		}
+		server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
+		send <- struct{}{}
+	}()
+
+	if timeout == 0 {
+		<-call
+		<-send
+		return
+	}
+
+	select {
+	case <-time.After(timeout):
+		req.h.Error = fmt.Sprintf("rpc server: request handle timeout: expect within %s", timeout)
+		server.sendResponse(cc, req.h, invalidRequest, sendLock)
+	case <-call:
+		<-send
+	}
 }
 
 //---------------------------------------------------------------------

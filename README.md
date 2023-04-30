@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 18:33:45
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 18:11:31
+ * @LastEditTime: 2023-04-30 20:49:22
  * @FilePath: /TidyRpcByGo/README.md
 -->
 # 基于Go的简易rpc框架🚀
@@ -13,7 +13,7 @@
 - 🔨: 编解码部分基于 Json、Gob 格式
 - 🎯: 负载均衡采用了客户端负载均衡策略，实现了随机、轮询两种算法（TODO）
 - ☁: 实现了简易的注册中心和心跳机制，同时支持了 Zookeeper 和 Etcd （TODO）
-- ⏰: 使用 time.After 和 select-chan 机制为客户端连接、服务端处理添加了超时处理机制（TODO）
+- ⏰: 使用 time.After 和 select-chan 机制为客户端连接、服务端处理添加了超时处理机制
 
 
 
@@ -218,6 +218,33 @@ func (w *WaitGroup) Done()
 func (w *WaitGroup) Wait()
 
 ```
+
+4. 设定定时器超时时，造成了管道阻塞内存泄漏
+当主线程超时时，无缓冲管道内数据无法被拿走，导致阻塞内存泄漏
+
+```go
+	go func() {
+		client, err := f(conn, opt) // 若主线程超时结束了，这个ch中的数据没被拿走将被阻塞，造成内存泄漏
+		ch <- clientResult{client: client, err: err}
+	}()
+
+	if opt.ConnectTimeout == 0 {
+		result := <-ch
+		return result.client, result.err
+	}
+
+	select {
+	case <-time.After(opt.ConnectTimeout):
+		return nil, fmt.Errorf("rpc client: connect timeout: expect within %s", opt.ConnectTimeout)
+	case result := <-ch: 
+		return result.client, result.err
+	}
+
+
+```
+
+
+
 
 反射关键函数总结
 
