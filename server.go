@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 23:29:40
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 15:46:50
+ * @LastEditTime: 2023-04-30 17:59:54
  * @FilePath: /TidyRpcByGo/server.go
  */
 package tinyrpc
@@ -184,8 +184,7 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	req := &request{h: h}
 
 	// 1. 目前还不知道args的类型，第一个版本先只支持string(fix)
-	// 2. 通过反射拿到所有类型
-
+	// 2. 通过反射拿到客户端发来请求的service.method ，method包括方法名，入参变量结构体， 返回结果结构体
 	req.svc, req.mtype, err = server.findService(h.ServiceMethod)
 
 	if err != nil {
@@ -195,7 +194,7 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 	req.argv = req.mtype.newArgv()
 	req.replyv = req.mtype.newReplyv()
 
-	// 确保argvi 是指针， 读请求体需要指针
+	// 确保argvi 是指针，读请求体需要指针才能修改argv的内容
 
 	argvi := req.argv.Interface()
 	if req.argv.Type().Kind() != reflect.Ptr {
@@ -235,7 +234,7 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync
 }
 
 //---------------------------------------------------------------------
-// 具体的服务方法注册逻辑
+// 具体的服务方法注册逻辑，sync.map[服务名]服务的实例
 func (server *Server) Register(rcvr interface{}) error {
 	s := newService(rcvr)
 	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
@@ -246,7 +245,14 @@ func (server *Server) Register(rcvr interface{}) error {
 
 func Register(rcvr interface{}) error { return DefaultServer.Register(rcvr) }
 
+/*
+ServiceMethod 的构成是 “Service.Method”，因此先将其分割成 2 部分
+第一部分是 Service 的名称，第二部分即方法名。
+现在 serviceMap 中找到对应的 service 实例，
+再从 service 实例的 method 中，找到对应的 methodType。
+*/
 func (server *Server) findService(ServiceMethod string) (svc *service, mtype *methodType, err error) {
+
 	dot := strings.LastIndex(ServiceMethod, ".")
 
 	if dot < 0 {
@@ -269,6 +275,7 @@ func (server *Server) findService(ServiceMethod string) (svc *service, mtype *me
 	if mtype == nil {
 		err = errors.New("rpc server: can't find method " + methodName)
 	}
+
 	return
 
 }

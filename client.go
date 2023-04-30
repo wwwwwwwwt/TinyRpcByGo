@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-29 11:25:12
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-29 21:10:40
+ * @LastEditTime: 2023-04-30 16:32:07
  * @FilePath: /TidyRpcByGo/client.go
  */
 package tinyrpc
@@ -216,7 +216,6 @@ func Dial(network string, address string, opts ...*Option) (client *Client, err 
 }
 
 //---------------------------------------------------------------------
-
 // 客户端的发送请求send()方法
 func (client *Client) send(call *Call) {
 	client.sendLock.Lock()

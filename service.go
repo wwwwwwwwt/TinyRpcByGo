@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-29 21:26:15
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 14:47:43
+ * @LastEditTime: 2023-04-30 17:41:21
  * @FilePath: /TidyRpcByGo/service.go
  */
 package tinyrpc
@@ -70,7 +70,7 @@ type service struct {
 
 func newService(rcvr interface{}) *service { // 入参是任意要映射为服务的结构体实例
 	s := new(service)
-	s.rcvr = reflect.ValueOf(rcvr)
+	s.rcvr = reflect.ValueOf(rcvr) // 一切基于先得到反射后的实际类型
 
 	/*
 		这里使用reflect.Indirect的原因在于无法确定用户传入的s.rcvr类型为结构体还是为指针，如果用户传入的为指针的话，直接采用s.typ.Name()输出的为空字符串
@@ -79,7 +79,7 @@ func newService(rcvr interface{}) *service { // 入参是任意要映射为服�
 		因此需要采用reflect.Indirect(s.rcvr)方法，提取实例对象再获取名称
 	*/
 	s.name = reflect.Indirect(s.rcvr).Type().Name()
-	s.typ = reflect.TypeOf(rcvr)
+	s.typ = reflect.TypeOf(rcvr) // 通过实例的反射得到结构提的类型，然后通过结构体类型得到method
 	if !ast.IsExported(s.name) {
 		log.Fatalf("rpc server: %s is not a valid service name", s.name)
 	}
@@ -129,6 +129,7 @@ func (s *service) call(m *methodType, argv reflect.Value, replyv reflect.Value) 
 	atomic.AddUint64(&m.numCalls, 1)
 	f := m.method.Func
 
+	// 正常调用是 A.func(argv1, argv2)，反射的时候就是 Call(A, argv1, argv2)。
 	returnValue := f.Call([]reflect.Value{s.rcvr, argv, replyv})
 	if errInter := returnValue[0].Interface(); errInter != nil {
 		return errInter.(error)
