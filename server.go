@@ -2,18 +2,19 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 23:29:40
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-29 10:42:20
- * @FilePath: /TidyRpcByGo/Codec/server.go
+ * @LastEditTime: 2023-04-30 15:46:50
+ * @FilePath: /TidyRpcByGo/server.go
  */
 package tinyrpc
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"reflect"
+	"strings"
 	"sync"
 	"tinyrpc/codec"
 )
@@ -40,7 +41,9 @@ var DefaultOption = &Option{
 | Option | Header1 | Body1 | Header2 | Body2 | ...
 */
 
-type Server struct{}
+type Server struct {
+	serviceMap sync.Map
+}
 
 func NewServer() *Server {
 	return &Server{}
@@ -102,6 +105,12 @@ func (server *Server) ServerConn(conn io.ReadWriteCloser) {
 		log.Printf("rpc sever: invalid codec type %s", opt.CodecType)
 		return
 	}
+
+	// 给客户端一个响应，说明此次 Option 是 ok 的
+	if err := json.NewEncoder(conn).Encode(opt); err != nil {
+		log.Println("rpc server: option error: ", err)
+		return
+	}
 	server.serverCodec(f(conn))
 }
 
@@ -115,6 +124,8 @@ var invalidRequest = struct{}{} // 用于当发生错误解码时，发送的占
 type request struct {
 	h            *codec.Header
 	argv, replyv reflect.Value
+	mtype        *methodType
+	svc          *service
 }
 
 /*
@@ -172,11 +183,28 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 
 	req := &request{h: h}
 
-	// 目前还不知道args的类型，第一个版本先只支持string
+	// 1. 目前还不知道args的类型，第一个版本先只支持string(fix)
+	// 2. 通过反射拿到所有类型
 
-	req.argv = reflect.New(reflect.TypeOf(""))
-	if err = cc.ReadBody(req.argv.Interface()); err != nil {
-		fmt.Println("rpc server :read argv err", err)
+	req.svc, req.mtype, err = server.findService(h.ServiceMethod)
+
+	if err != nil {
+		return req, nil
+	}
+
+	req.argv = req.mtype.newArgv()
+	req.replyv = req.mtype.newReplyv()
+
+	// 确保argvi 是指针， 读请求体需要指针
+
+	argvi := req.argv.Interface()
+	if req.argv.Type().Kind() != reflect.Ptr {
+		argvi = req.argv.Addr().Interface()
+	}
+
+	if err = cc.ReadBody(argvi); err != nil {
+		log.Println("rpc server: read body err:", err)
+		return req, err
 	}
 
 	return req, nil
@@ -194,8 +222,53 @@ func (server *Server) sendResponse(cc codec.Codec, h *codec.Header, body interfa
 func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync.Mutex, wgcv *sync.WaitGroup) {
 	defer wgcv.Done()
 
-	log.Println(req.h, req.argv.Elem())
+	err := req.svc.call(req.mtype, req.argv, req.replyv)
+	if err != nil {
+		req.h.Error = err.Error()
+		server.sendResponse(cc, req.h, invalidRequest, sendLock)
+		return
+	}
+	//log.Println(req.h, req.argv.Elem())
 
-	req.replyv = reflect.ValueOf(fmt.Sprintf("tinyrpc resp %d", req.h.Seq))
+	//req.replyv = reflect.ValueOf(fmt.Sprintf("tinyrpc resp %d", req.h.Seq))
 	server.sendResponse(cc, req.h, req.replyv.Interface(), sendLock)
+}
+
+//---------------------------------------------------------------------
+// 具体的服务方法注册逻辑
+func (server *Server) Register(rcvr interface{}) error {
+	s := newService(rcvr)
+	if _, dup := server.serviceMap.LoadOrStore(s.name, s); dup {
+		return errors.New("rpc: service already defined: " + s.name)
+	}
+	return nil
+}
+
+func Register(rcvr interface{}) error { return DefaultServer.Register(rcvr) }
+
+func (server *Server) findService(ServiceMethod string) (svc *service, mtype *methodType, err error) {
+	dot := strings.LastIndex(ServiceMethod, ".")
+
+	if dot < 0 {
+		err = errors.New("rpc server: service/method request ill-formed: " + ServiceMethod)
+		return
+	}
+
+	serviceName, methodName := ServiceMethod[:dot], ServiceMethod[dot+1:] //左开右闭
+
+	svci, ok := server.serviceMap.Load(serviceName)
+
+	if !ok {
+		err = errors.New("rpc server: can't find service " + serviceName)
+	}
+
+	svc = svci.(*service)
+
+	mtype = svc.method[methodName]
+
+	if mtype == nil {
+		err = errors.New("rpc server: can't find method " + methodName)
+	}
+	return
+
 }

@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-29 11:25:12
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-29 18:07:07
+ * @LastEditTime: 2023-04-29 21:10:40
  * @FilePath: /TidyRpcByGo/client.go
  */
 package tinyrpc
@@ -153,6 +153,12 @@ func NewClient(conn net.Conn, opt *Option) (*Client, error) {
 	// send opt with server
 	if err := json.NewEncoder(conn).Encode(opt); err != nil {
 		log.Println("rpc client: options error", err)
+		_ = conn.Close()
+		return nil, err
+	}
+	//接收一个服务端发来的响应，说明解析完了opt，然后再发送请求消息，防止粘包
+	if err := json.NewDecoder(conn).Decode(opt); err != nil {
+		log.Println("rpc client: option err: ", err)
 		_ = conn.Close()
 		return nil, err
 	}
