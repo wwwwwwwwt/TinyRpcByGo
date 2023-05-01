@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-05-01 17:30:53
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-02 03:05:18
+ * @LastEditTime: 2023-05-02 03:33:16
  * @FilePath: /TinyRpcByGo/xclient/xclient.go
  */
 package xclient
@@ -90,7 +90,13 @@ func (xc *XClient) Call(ctx context.Context, serviceMethod string, args interfac
 	return xc.call(rpcAddr, ctx, serviceMethod, args, replyv)
 }
 
-// 向所有服务端广播注册这个服务
+// 向所有服务端广播调用这个服务
+// 代码一些并发相关的细节：
+// 1. 并发请求所有服务。需要使用互斥锁。
+// 2. 需要等所有服务都返回才能继续。需要使用 WaitGroup。
+// 3. 有任一错误发生时，快速失败。需要使用 context。
+// 4. 调用成功，则返回其中一个结果。
+
 func (xc *XClient) Broadcast(ctx context.Context, serviceMethod string, args interface{}, replyv interface{}) error {
 
 	servers, err := xc.d.GetAll()
