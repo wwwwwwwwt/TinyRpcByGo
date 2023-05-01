@@ -2,12 +2,13 @@
  * @Author: zzzzztw
  * @Date: 2023-04-29 11:25:12
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 21:41:20
+ * @LastEditTime: 2023-05-01 17:49:11
  * @FilePath: /TidyRpcByGo/client.go
  */
 package tinyrpc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"tinyrpc/codec"
@@ -43,6 +46,12 @@ type Client struct {
 	pending  map[uint64]*Call // 存储未处理完的请求，key 编号seq，val是Call实例,类似消息队列
 	closing  bool             // 手动关闭
 	shutdown bool             // 由于错误的关闭
+}
+
+func (client *Client) IsAvailable() bool {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return !client.shutdown && !client.closing
 }
 
 var _ io.Closer = (*Client)(nil)
@@ -337,4 +346,48 @@ func (client *Client) Call(ctx context.Context, serviceMethod string, args inter
 	//用户可以使用创建有超时检测功能的context对象来控制
 	//ctx, _ := context.WithTimeout(context.Background(), time.Second)
 	//err := client.Call(ctx, "Foo.Sum", &Args{1, 2}, &reply)
+}
+
+//-------------------------------------------------------------------------------------
+//客户端支持http协议
+
+func NewHTTPclient(conn net.Conn, opt *Option) (*Client, error) {
+	_, _ = io.WriteString(conn, fmt.Sprintf("CONNECT %s HTTP/1.0\n\n", defaultRPCPath))
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
+
+	if err == nil && resp.Status == connected {
+		return NewClient(conn, opt)
+	}
+
+	if err == nil {
+		err = errors.New("unexpected HTTP response: " + resp.Status)
+	}
+
+	return nil, err
+}
+
+func DialHTTP(network string, address string, opts ...*Option) (*Client, error) {
+	//使用HTTP方法
+	return dialTimeout(NewHTTPclient, network, address, opts...)
+}
+
+//http和rpc统一的api
+func XDial(rpcAddr string, opts ...*Option) (*Client, error) {
+	parts := strings.Split(rpcAddr, "@")
+
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("rpc client err: wrong format '%s', expect protocol@addr", rpcAddr)
+	}
+
+	protocol, addr := parts[0], parts[1]
+
+	switch protocol {
+	case "http":
+		//处理http协议连接， 底层通信还是tcp
+		return DialHTTP("tcp", addr, opts...)
+	default:
+		// tcp, unix
+		return Dial(protocol, addr, opts...)
+	}
 }

@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 23:29:40
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 21:25:27
+ * @LastEditTime: 2023-05-01 18:42:46
  * @FilePath: /TidyRpcByGo/server.go
  */
 package tinyrpc
@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"sync"
@@ -272,7 +273,7 @@ func (server *Server) handleRequest(cc codec.Codec, req *request, sendLock *sync
 	}
 }
 
-//---------------------------------------------------------------------
+//-------------------------------------------------------------------------------------
 // 具体的服务方法注册逻辑，sync.map[服务名]服务的实例
 func (server *Server) Register(rcvr interface{}) error {
 	s := newService(rcvr)
@@ -317,4 +318,48 @@ func (server *Server) findService(ServiceMethod string) (svc *service, mtype *me
 
 	return
 
+}
+
+//-------------------------------------------------------------------------------------
+//支持http协议部分
+//客户端会向服务端发送connect请求，rpc服务器返回Http 200状态码表示连接
+//接下来客户端使用创建好的连接发送rpc报文，先发送Json格式的Option协商编码格式，再发送请求报文
+
+var _ http.Handler = (*Server)(nil)
+
+const (
+	connected        = "200 Connected to RPC"
+	defaultRPCPath   = "/_tinyrpc_"
+	defaultDebugPath = "/debug/tinyrpc"
+)
+
+// 实现由http连接到rpc连接的转换
+func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// 首先判断请求方法类型
+	if req.Method != "CONNECT" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, "405 must CONNECT\n")
+		return
+	}
+
+	conn, _, err := w.(http.Hijacker).Hijack() // 劫持这个conn用作rpc连接
+
+	if err != nil {
+		log.Print("prc hijacking ", req.RemoteAddr, ": ", err.Error())
+		return
+	}
+	// 写回 http 响应消息，格式为：响应行\n响应头（头部行）\n响应体。由于没有加响应头（头部行），所以这里末尾写了两个\n
+	_, _ = io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n")
+	server.ServerConn(conn)
+}
+
+func (server *Server) HandleHttp() {
+	http.Handle(defaultRPCPath, server)
+	http.Handle(defaultDebugPath, debugHTTP{server})
+	log.Println("rpc server debug path:", defaultDebugPath)
+}
+
+func HandleHttp() {
+	DefaultServer.HandleHttp()
 }

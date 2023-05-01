@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 18:33:45
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 20:49:22
+ * @LastEditTime: 2023-05-01 19:05:47
  * @FilePath: /TidyRpcByGo/README.md
 -->
 # 基于Go的简易rpc框架🚀
@@ -78,6 +78,7 @@
 2. service 对象代表着一个提供服务的对象，methodType 对象代表着这个提供服务的对象的一个方法。所以 service 以 map 持有多个 methodType。
 3. 提供了将一个结构体对象转变成 service对象，其中的合规方法转变成 methodType 的函数。（合规的方法的签名只能有两个入参，前一个代表参数，后一个代表返回值，和一个错误返回值）
 4. 将 service 集成进 Server，使得 Server能够注册 service，持有多个 service，并且在处理请求时，能够调用到对应 service 的 method 上
+5. 通过 ```method.Func.Call([]reflect.Value{s.rcvr, argv, replyv})```调用对象的方法
 
 ---
 
@@ -220,13 +221,46 @@ func (w *WaitGroup) Wait()
 ```
 
 4. 设定定时器超时时，造成了管道阻塞内存泄漏
+
 当主线程超时时，无缓冲管道内数据无法被拿走，导致阻塞内存泄漏
 
 ```go
-	go func() {
+	/*go func() {
 		client, err := f(conn, opt) // 若主线程超时结束了，这个ch中的数据没被拿走将被阻塞，造成内存泄漏
 		ch <- clientResult{client: client, err: err}
-	}()
+	}()*/
+
+   // ch <- cs
+   // 这里会有内存泄露的隐患：超时之后，由于没有 <-ch，这个子协程会阻塞在 ch <- cs
+   // 有两种解决方案：
+   //    1. 把 ch 改成缓冲形式的 channel：ch := make(chan clientResult, 1)
+   //    2. 使用 select + default，结果不能放入 ch 的话，就走 default
+   // 样例代码 ：
+   // // ch := make(chan struct{}, 1)
+   //	ch := make(chan struct{})
+   //	timeout := time.Second * 2
+   //	go func() {
+   //		time.Sleep(time.Second * 4)
+   //		/*select {
+   //		case ch <- struct{}{}:
+   //		default:
+   //		}*/
+   //		ch <- struct{}{}
+   //		fmt.Println("协程正常退出")
+   //	}()
+   //	select {
+   //	case <-time.After(timeout):
+   //		fmt.Println("超时")
+   //	case <-ch:
+   //		fmt.Println("正常退出")
+   //	}
+   //	for{
+   //
+   //	}
+
+    go func(){
+		client, err	
+    }()
 
 	if opt.ConnectTimeout == 0 {
 		result := <-ch
@@ -240,9 +274,7 @@ func (w *WaitGroup) Wait()
 		return result.client, result.err
 	}
 
-
 ```
-
 
 
 
