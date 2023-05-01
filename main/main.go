@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-28 12:25:51
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-30 21:40:02
+ * @LastEditTime: 2023-05-01 15:42:47
  * @FilePath: /TidyRpcByGo/main/main.go
  */
 package main
@@ -11,6 +11,7 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 	"tinyrpc"
@@ -26,7 +27,7 @@ func (f Foo) Sum(args Args, reply *int) error {
 	return nil
 }
 
-func startServer(addr chan string) {
+/*func startServer(addr chan string) {
 	var foo Foo
 	if err := tinyrpc.Register(&foo); err != nil {
 		log.Fatal("register error:", err)
@@ -65,4 +66,41 @@ func main() {
 		}(i)
 	}
 	wg.Wait()
+}*/
+
+func startServer(addrCh chan string) {
+	var foo Foo
+	l, _ := net.Listen("tcp", ":9999")
+	_ = tinyrpc.Register(&foo)
+	tinyrpc.HandleHttp()
+	addrCh <- l.Addr().String()
+	_ = http.Serve(l, nil)
+}
+func call(addrCh chan string) {
+	client, _ := tinyrpc.DialHTTP("tcp", <-addrCh)
+	defer func() { _ = client.Close() }()
+
+	time.Sleep(time.Second)
+	// send request & receive response
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := &Args{Num1: i, Num2: i * i}
+			var reply int
+			if err := client.Call(context.Background(), "Foo.Sum", args, &reply); err != nil {
+				log.Fatal("call Foo.Sum error:", err)
+			}
+			log.Printf("%d + %d = %d", args.Num1, args.Num2, reply)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func main() {
+	log.SetFlags(0)
+	ch := make(chan string)
+	go call(ch)
+	startServer(ch)
 }
