@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-05-01 17:30:53
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-01 18:36:13
- * @FilePath: /TidyRpcByGo/xclient/xclient.go
+ * @LastEditTime: 2023-05-02 03:05:18
+ * @FilePath: /TinyRpcByGo/xclient/xclient.go
  */
 package xclient
 
