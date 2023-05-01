@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 18:33:45
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-01 19:05:47
- * @FilePath: /TidyRpcByGo/README.md
+ * @LastEditTime: 2023-05-02 00:05:56
+ * @FilePath: /TinyRpcByGo/README.md
 -->
 # 基于Go的简易rpc框架🚀
 
@@ -11,10 +11,9 @@
 
 ### 主要特点：
 - 🔨: 编解码部分基于 Json、Gob 格式
-- 🎯: 负载均衡采用了客户端负载均衡策略，实现了随机、轮询两种算法（TODO）
-- ☁: 实现了简易的注册中心和心跳机制，同时支持了 Zookeeper 和 Etcd （TODO）
-- ⏰: 使用 time.After 和 select-chan 机制为客户端连接、服务端处理添加了超时处理机制
-
+- 🎯: 负载均衡采用了客户端负载均衡策略，实现了随机、轮询两种算法(finish)
+- ⏰: 使用 time.After 和 select-chan 机制为客户端连接、服务端处理添加了超时处理机制 (finish)
+- ☁: 实现了简易的注册中心和心跳机制，同时支持了Etcd(TODO)
 
 
 ### 客户端
