@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-28 12:25:51
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-02 02:58:36
+ * @LastEditTime: 2023-05-09 11:00:20
  * @FilePath: /TinyRpcByGo/main/main.go
  */
 package main
@@ -292,17 +292,21 @@ func main() {
 	log.SetFlags(0)
 	registryAddr := "http://localhost:9999/_tinyrpc_/registry"
 	var wg sync.WaitGroup
+
+	//把注册中心起来再进行下一步
 	wg.Add(1)
 	go startRegistry(&wg)
 	wg.Wait()
 
 	time.Sleep(time.Second)
 	wg.Add(2)
+	// 模拟起两个服务器，把服务端注册到服务中心心
 	go startServer(registryAddr, &wg)
 	go startServer(registryAddr, &wg)
 	wg.Wait()
 
 	time.Sleep(time.Second)
+	// 模拟单点call和广播call业务
 	call(registryAddr)
 	broadcast(registryAddr)
 }
