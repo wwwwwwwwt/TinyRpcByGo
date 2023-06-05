@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-28 12:25:51
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-09 11:00:20
+ * @LastEditTime: 2023-06-05 17:40:01
  * @FilePath: /TinyRpcByGo/main/main.go
  */
 package main
@@ -205,7 +205,7 @@ func main() {
 
 //-------------------------------------------------------------------------------------
 // test for registry
-
+/*
 type Foo int
 
 type Args struct{ Num1, Num2 int }
@@ -309,4 +309,127 @@ func main() {
 	// 模拟单点call和广播call业务
 	call(registryAddr)
 	broadcast(registryAddr)
+}
+*/
+
+// test for etcd
+
+func main() {
+	log.SetFlags(log.Lmsgprefix)
+	registryAddr := "localhost:2379"
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go startRegistry(&wg)
+	wg.Wait()
+	time.Sleep(time.Second)
+	wg.Add(2)
+	go startServer(registryAddr, &wg)
+	go startServer(registryAddr, &wg)
+
+	wg.Wait()
+
+	//time.Sleep(time.Second)
+	call(registryAddr)
+
+	//	time.Sleep(time.Second * 10)
+	broadcast(registryAddr)
+}
+
+func startServer(registryAddr string, wg *sync.WaitGroup) {
+	listener, _ := net.Listen("tcp", ":0")
+	server := tinyrpc.NewServer()
+	server.Register(new(Foo))
+	//registry.Heartbeat(registryAddr, "tcp@" + listener.Addr().String(), 0)
+	//registry.PutZkServer(listener.Addr().String())
+
+	etcd := registry.NewEtcdClient([]string{registryAddr}, 5*time.Second)
+	defer etcd.Close()
+	etcd.PutServer("tcp@" + listener.Addr().String())
+
+	wg.Done()
+
+	server.Accept(listener)
+}
+
+func startRegistry(wg *sync.WaitGroup) {
+	l, _ := net.Listen("tcp", ":9999")
+	registry.HandleHTTP()
+	wg.Done()
+	_ = http.Serve(l, nil)
+}
+
+func call(registry string) {
+	//discovery := xclient.NewGeeRegistryDiscovery(registry, 0)
+	discovery := xclient.NewEtcdRegistryDiscory(registry, 10*time.Second)
+	xc := xclient.NewXClient(discovery, xclient.RandomSelect, nil)
+
+	defer xc.Close()
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := &Args{
+				Num1: i,
+				Num2: i * i,
+			}
+			foo(xc, context.Background(), "call", "Foo.Sum", args)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func broadcast(registry string) {
+	discovery := xclient.NewEtcdRegistryDiscory(registry, 10*time.Second)
+	xc := xclient.NewXClient(discovery, xclient.RandomSelect, nil)
+	defer xc.Close()
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			args := &Args{
+				Num1: i,
+				Num2: i * i,
+			}
+			foo(xc, context.Background(), "broadcast", "Foo.Sum", args)
+			ctx, _ := context.WithTimeout(context.Background(), time.Second*2)
+			foo(xc, ctx, "broadcast", "Foo.Sleep", &Args{Num1: i, Num2: i * i})
+		}(i)
+	}
+	wg.Wait()
+}
+
+func foo(xc *xclient.XClient, ctx context.Context, typ, serviceMethod string, args *Args) {
+	var reply int
+	var err error
+	switch typ {
+	case "call":
+		err = xc.Call(ctx, serviceMethod, args, &reply)
+	case "broadcast":
+		err = xc.Broadcast(ctx, serviceMethod, args, &reply)
+	}
+	if err != nil {
+		log.Printf("%s %s error: %v", typ, serviceMethod, err)
+	} else {
+		log.Printf("%s %s success: %d + %d = %d", typ, serviceMethod, args.Num1, args.Num2, reply)
+	}
+
+}
+
+type Foo int
+
+type Args struct {
+	Num1, Num2 int
+}
+
+func (f Foo) Sum(args Args, reply *int) error {
+	*reply = args.Num1 + args.Num2
+	return nil
+}
+
+func (f Foo) Sleep(args Args, reply *int) error {
+	time.Sleep(time.Second * time.Duration(args.Num1))
+	*reply = args.Num1 + args.Num2
+	return nil
 }

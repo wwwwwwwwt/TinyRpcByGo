@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-06-02 17:21:38
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-06-02 17:49:28
+ * @LastEditTime: 2023-06-05 17:33:12
  * @FilePath: /TinyRpcByGo/registry/etcd.go
  */
 package registry
@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"time"
+	"tinyrpc/config"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -38,8 +39,8 @@ func NewEtcdClient(addr []string, timeout time.Duration) *EtcdClient {
 	return &EtcdClient{client: client, timeout: timeout}
 }
 
-func (e *EtcdClient) PutServer(server string) {
-
+func (e *EtcdClient) PutServer(server string) error {
+	return e.Put(config.EtcdProviderPath+"/"+server, server)
 }
 
 //用于创建租约，
@@ -48,10 +49,11 @@ func (e *EtcdClient) Put(key, value string) error {
 	//获取租约对象
 	lease := clientv3.NewLease(e.client)
 	//创建超时租约
-	leaseGrantResponse, err := lease.Grant(context.Background(), int64(e.timeout))
+
+	leaseGrantResponse, err := lease.Grant(context.Background(), int64(e.timeout/time.Second))
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	//将租约绑定到kv对象中去
