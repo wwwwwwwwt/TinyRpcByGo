@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 18:33:45
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-02 03:16:14
+ * @LastEditTime: 2023-06-06 17:22:48
  * @FilePath: /TinyRpcByGo/README.md
 -->
 # 基于Go的简易rpc框架🚀
@@ -16,7 +16,7 @@
 - ☁: 实现了简易的注册中心和心跳机制，同时支持了Etcd(TODO)
 
 
-### 客户端
+## 客户端
 
 #### 客户端的创建
 
@@ -52,7 +52,7 @@
 
 
 
-### 服务端
+## 服务端
 
 #### 接收连接
 
@@ -83,15 +83,73 @@
 
 
 
-### 注册中心
+## 注册中心
 
-#### 简易注册中心
+### 简易注册中心
 
 1. 这个注册中心维护了一个 [服务器地址 -> 服务器地址 + 该服务上一次的心跳时间] 的 map，并且通过实现 http.Handler 接口，对外提供 Http 服务，这样每个服务器可以通过 POST 请求发送心跳、服务发现模块通过 GET 请求拉取所有可用服务器的地址。
 2. 注册中心在响应服务发现模块的GET请求时，会遍历一遍自己维护的服务列表，剔除掉已经超时的服务，然后通过 HTTP 自定义头，返回所有存活的服务地址。
 3. 此外，还暴露了对外的 Heartbeat 函数，使得服务可以使用该函数向指定注册中心发送指定服务的心跳
 
-#### Etcd注册中心(TODO)
+### Etcd注册中心
+
+<center>
+
+![](/img/etcd.png)
+
+</center>
+
+1. 使用时需要开另一个终端 并打开一个ectd节点，默认监听2379端口。
+#### 代码逻辑
+1. 利用etcd暴露的clientv3接口，创建client对象，为其绑定监听地址和超时时间。
+```go
+func NewEtcdClient(addr []string, timeout time.Duration) *EtcdClient {
+	if timeout == 0 {
+		timeout = defaultTimeout - time.Duration(1)*time.Minute
+	}
+
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   addr,
+		DialTimeout: timeout,
+	})
+
+	if err != nil {
+		log.Printf("rpc etcd: cannot connect to %s: err: %s", addr, err)
+		return nil
+	}
+	return &EtcdClient{client: client, timeout: timeout}
+}
+```
+
+2. key为监听地址，value为监听地址具体的服务，利用租约将其绑定给我们之前创建的client对象，并无限期定时发送心跳给key续约，这里如果做的更精细的话可以加一些错误判断，然后利用上下文ctx来取消，或使用keepaliveonce，手动定时发心跳
+```go
+//用于创建租约，
+func (e *EtcdClient) Put(key, value string) error {
+
+	//获取租约对象
+	lease := clientv3.NewLease(e.client)
+	//创建超时租约
+
+	leaseGrantResponse, err := lease.Grant(context.Background(), int64(e.timeout/time.Second))
+
+	if err != nil {
+		return err
+	}
+
+	//将租约绑定到kv对象中去
+	_, err = e.client.Put(context.TODO(), key, value, clientv3.WithLease(leaseGrantResponse.ID))
+	if err != nil {
+		return err
+	}
+
+	//利用心跳给key 续租
+	keepAlive, err := lease.KeepAlive(context.TODO(), leaseGrantResponse.ID)
+
+	// 消耗续约服务端返回的消息
+	go leaseKeepAlive(keepAlive)
+	return nil
+}
+```
 
 ### 服务发现
 
@@ -101,7 +159,43 @@
 2. 并且在每次 Get 服务器地址时，会使用 Refresh 方法根据设定好的超时时间，判断是否要去注册中心全量拉取一次
 3. 更新完注册中心地址后，会通过设定好的负载均衡算法，从服务器地址列表中返回一个选中的服务器地址给通信客户端
 
-#### Etcd服务发现模块(TODO)
+#### Etcd服务发现模块
+
+1. 客户端与etcd 2379节点进行交互的模块，利用clientv3提供的Get方法得到健康的服务器节点地址，watch可以获得我们监控目录下的变动，如在我们监控的目录下新增一个服务，原理是，etcd会创建一个watcher对象，watcher对象和我们监控的服务端保持一个长连接，并在键的更改时通知，将现在观察到的版本号并比较自己观察的起始点版本号做对比, 当我们监控的目录改变时，通知我们改变的键和其val。
+```go
+//watcher
+func (e *EtcdRegistryDiscory) watchProviders(ctx context.Context) {
+	watchChan := clientv3.NewWatcher(e.client).Watch(context.TODO(), config.EtcdProviderPath, clientv3.WithPrefix())
+
+	select {
+	case <-watchChan:
+		for _ = range watchChan {
+			// 这里可以做得更精细，因为 etcd 会给出变化的 key，我们权且简单处理
+			// 结点产生了变化，就从服务器拉取
+		}
+		e.refreshFromEtcd()
+	case <-ctx.Done():
+	}
+}
+//获得现在最新的服务端地址
+func (e *EtcdRegistryDiscory) refreshFromEtcd() error {
+	resp, err := e.client.Get(context.Background(), config.EtcdProviderPath, clientv3.WithPrefix())
+
+	if err != nil {
+		log.Println("rpc&&etcd discovery: refresh err:", err)
+		return err
+	}
+
+	e.servers = make([]string, 0, resp.Count)
+
+	for i, _ := range resp.Kvs {
+		e.servers = append(e.servers, string(resp.Kvs[i].Value))
+	}
+	e.lastUpdate = time.Now()
+	return nil
+}
+
+```
 ---
 
 \*************************************************************************************************************\*  
