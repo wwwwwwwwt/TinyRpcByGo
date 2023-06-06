@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 18:33:45
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-06-06 17:22:48
+ * @LastEditTime: 2023-06-06 17:40:22
  * @FilePath: /TinyRpcByGo/README.md
 -->
 # 基于Go的简易rpc框架🚀
@@ -374,7 +374,13 @@ func (w *WaitGroup) Wait()
    //	}
 
     go func(){
-		client, err	
+		client, err := f(conn, opt)
+		//ch <- clientResult{client: client, err: err}// 若主线程超时结束了，这个ch中的数据没被拿走将被阻塞，造成内存泄露
+		// 修改为能放进管道就放，不能就走default
+		select {
+		case ch <- clientResult{client: client, err: err}:
+		default:
+		}
     }()
 
 	if opt.ConnectTimeout == 0 {
