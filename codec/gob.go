@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 21:24:31
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-04-29 10:40:15
- * @FilePath: /TidyRpcByGo/Codec/codec/gob.go
+ * @LastEditTime: 2023-06-14 19:11:13
+ * @FilePath: /TinyRpcByGo/codec/gob.go
  */
 package codec
 
@@ -47,7 +47,7 @@ func (c *GobCodec) ReadBody(body interface{}) error {
 func (c *GobCodec) Write(h *Header, body interface{}) (err error) {
 
 	defer func() {
-		_ = c.buf.Flush() // 将缓存没发送的发送了
+		_ = c.buf.Flush() // 将缓存没发送的发送了, 底层继承一个Write方法的接口，递归调用这个write，直到发送完成
 		if err != nil {   // 关闭
 			_ = c.Close()
 		}

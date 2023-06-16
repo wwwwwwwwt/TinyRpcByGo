@@ -2,8 +2,8 @@
  * @Author: zzzzztw
  * @Date: 2023-04-27 23:29:40
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-05-01 18:42:46
- * @FilePath: /TidyRpcByGo/server.go
+ * @LastEditTime: 2023-06-14 21:27:47
+ * @FilePath: /TinyRpcByGo/server.go
  */
 package tinyrpc
 
@@ -346,7 +346,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	conn, _, err := w.(http.Hijacker).Hijack() // 劫持这个conn用作rpc连接
 
 	if err != nil {
-		log.Print("prc hijacking ", req.RemoteAddr, ": ", err.Error())
+		log.Print("rpc hijacking ", req.RemoteAddr, ": ", err.Error())
 		return
 	}
 	// 写回 http 响应消息，格式为：响应行\n响应头（头部行）\n响应体。由于没有加响应头（头部行），所以这里末尾写了两个\n

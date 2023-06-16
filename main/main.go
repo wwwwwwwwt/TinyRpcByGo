@@ -2,7 +2,7 @@
  * @Author: zzzzztw
  * @Date: 2023-04-28 12:25:51
  * @LastEditors: Do not edit
- * @LastEditTime: 2023-06-05 17:40:01
+ * @LastEditTime: 2023-06-15 19:55:02
  * @FilePath: /TinyRpcByGo/main/main.go
  */
 package main
@@ -318,8 +318,8 @@ func main() {
 	log.SetFlags(log.Lmsgprefix)
 	registryAddr := "localhost:2379"
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go startRegistry(&wg)
+	//wg.Add(1)
+	//	go startRegistry(&wg)
 	wg.Wait()
 	time.Sleep(time.Second)
 	wg.Add(2)
